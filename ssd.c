@@ -40,7 +40,7 @@ int  main(int argc, char* argv[])
     alloc_assert(ssd, "ssd");
     memset(ssd,0, sizeof(struct ssd_info));
 
-    ssd = initiation(ssd, "example.ascii", "page.parameters", "ex.out");
+    ssd = initiation(ssd, "example.ascii", "page.parameters", "ex.out");//
     make_aged(ssd); // 使某些块失效
     pre_process_page(ssd);
 
