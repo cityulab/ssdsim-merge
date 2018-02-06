@@ -1,0 +1,5 @@
+*.o
+*.out
+parameters_name.txt
+parameters_value.txt
+statistic10.dat
