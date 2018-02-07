@@ -2,7 +2,7 @@ parameter file: page.parameters
 trace file: example.ascii
 -----------------------parameter file----------------------
 #parameter file
-dram capacity = 0;     #the unit is B 131074
+dram capacity = 131074;     #the unit is B 131074
 chip number[0] = 2;
 chip number[1] = 2;
 chip number[2] = 0;
@@ -24,7 +24,7 @@ chip number[17] = 0;
 chip number[18] = 0;
 channel number = 2;   #the number of channel
 chip number = 4;
-die number = 2;      
+die number = 2;
 plane number = 2;
 block number = 2048;
 page number = 64;
@@ -67,9 +67,9 @@ t_WHR = 60;
 t_RST = 5000;
 erase limit=100000;                          #record the erasure number of block
 flash operating current=25000.0;               #unit is uA
-flash supply voltage=3.3;                    #voltage is 3.3V	
+flash supply voltage=3.3;                    #voltage is 3.3V
 dram active current=125000;                     #active current of DRAM£¬unit is uA
-dram standby current=50000;                     #standby current of DRAM£¬unit is uA 
+dram standby current=50000;                     #standby current of DRAM£¬unit is uA
 dram refresh current=5000;                     #refresh current of DRAM£¬unit is uA
 dram voltage=3.3;                      #working voltage of DRAM£¬unit is V    3.3V
 address mapping=1;                    #mapping schemes£¬1£ºpage£»2£ºblock£»3£ºfast
@@ -102,6 +102,7 @@ chip:1,die:1,plane:1 have free page: 131072
 ****************** TRACE INFO ******************
       arrive           lsn     size ope     begin time    response time    process time
                0      55590      6  1                0            71375      71375
-        26214000     303574      7  0         26214000         26278525      64525
-        26214000     240840      6  0         26214000         26516750     302750
+        26214000     303574      7  0         26214000         26215000       1000
+        26214000     240840      6  0         26214000         26215000       1000
         78643005      55596      6  1         78643005         78714380      71375
+       117963996     303581      7  0        117963996        117964996       1000

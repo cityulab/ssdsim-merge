@@ -168,6 +168,7 @@ int set_entry_state(struct ssd_info *ssd,unsigned int lsn,unsigned int size)
 ***************************************************/
 struct ssd_info *pre_process_page(struct ssd_info *ssd)
 {
+	printf("[hubery-pre_process_page]----------start-----------------");
 	int fl=0;
 	unsigned int device,lsn,size,ope,lpn,full_page;
 	unsigned int largest_lsn,sub_size,ppn,add_size=0;
@@ -189,6 +190,7 @@ struct ssd_info *pre_process_page(struct ssd_info *ssd)
 	}
 
 	// 子页屏蔽码，认为每个page的所有subpage的状态都是1
+    // 0xffffffff = 11111111111111111111111111111111
 	full_page=~(0xffffffff<<(ssd->parameter->subpage_page));
 	/*计算出这个ssd的最大逻辑扇区号*/
 	largest_lsn=(unsigned int )((ssd->parameter->chip_num*ssd->parameter->die_chip*ssd->parameter->plane_die*ssd->parameter->block_plane*ssd->parameter->page_block*ssd->parameter->subpage_page)*(1-ssd->parameter->overprovide));
@@ -199,13 +201,15 @@ struct ssd_info *pre_process_page(struct ssd_info *ssd)
 		fl++;
 		trace_assert(time,device,lsn,size,ope);                         /*断言，当读到的time，device，lsn，size，ope不合法时就会处理*/
 
-		add_size=0;                                                     /*add_size是这个请求已经预处理的大小*/
+		add_size = 0;                                                     /*add_size是这个请求已经预处理的大小*/
 
-		if(ope==1)                                                      /*这里只是读请求的预处理，需要提前将相应位置的信息进行相应修改*/
+		if(ope == 1)                                                      /*这里只是读请求的预处理，需要提前将相应位置的信息进行相应修改*/
 		{
-			while(add_size<size)
+			while(add_size < size)
 			{
-				lsn=lsn%largest_lsn;                                    /*防止获得的lsn比最大的lsn还大*/
+				lsn = lsn % largest_lsn;                                 /*防止获得的lsn比最大的lsn还大*/
+                // 计算lsn所在的page实际io需要操作的长度
+                // page子页数量 - lsn在page中起始子页的位置
 				sub_size = ssd->parameter->subpage_page - ( lsn % ssd->parameter->subpage_page);
 				if(add_size+sub_size>=size)                             /*只有当一个请求的大小小于一个page的大小时或者是处理一个请求的最后一个page时会出现这种情况*/
 				{

@@ -1,5 +1,5 @@
 #parameter file
-dram capacity = 0;     #the unit is B 131074
+dram capacity = 131074;     #the unit is B 131074
 chip number[0] = 2;
 chip number[1] = 2;
 chip number[2] = 0;
@@ -21,7 +21,7 @@ chip number[17] = 0;
 chip number[18] = 0;
 channel number = 2;   #the number of channel
 chip number = 4;
-die number = 2;      
+die number = 2;
 plane number = 2;
 block number = 2048;
 page number = 64;
@@ -64,9 +64,9 @@ t_WHR = 60;
 t_RST = 5000;
 erase limit=100000;                          #record the erasure number of block
 flash operating current=25000.0;               #unit is uA
-flash supply voltage=3.3;                    #voltage is 3.3V	
+flash supply voltage=3.3;                    #voltage is 3.3V
 dram active current=125000;                     #active current of DRAM£¬unit is uA
-dram standby current=50000;                     #standby current of DRAM£¬unit is uA 
+dram standby current=50000;                     #standby current of DRAM£¬unit is uA
 dram refresh current=5000;                     #refresh current of DRAM£¬unit is uA
 dram voltage=3.3;                      #working voltage of DRAM£¬unit is V    3.3V
 address mapping=1;                    #mapping schemes£¬1£ºpage£»2£ºblock£»3£ºfast
