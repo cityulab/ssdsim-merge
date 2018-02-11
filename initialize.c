@@ -196,7 +196,8 @@ struct dram_info * initialize_dram(struct ssd_info * ssd)
 	alloc_assert(dram->map,"dram->map");
 	memset(dram->map,0, sizeof(struct map_info));
 
-	page_num = ssd->parameter->page_block*ssd->parameter->block_plane*ssd->parameter->plane_die*ssd->parameter->die_chip*ssd->parameter->chip_num;
+	// 页总数　= 每个page的页数 * 每个plane的block数 * 每个die的plane数 * 每个chip的die数　* 这个package有多少chip数
+	page_num = ssd->parameter->page_block * ssd->parameter->block_plane * ssd->parameter->plane_die * ssd->parameter->die_chip * ssd->parameter->chip_num;
 
 	dram->map->map_entry = (struct entry *)malloc(sizeof(struct entry) * page_num); //每个物理页和逻辑页都有对应关系
 	alloc_assert(dram->map->map_entry,"dram->map->map_entry");

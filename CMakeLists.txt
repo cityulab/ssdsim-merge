@@ -13,6 +13,6 @@ set(SOURCE_FILES
         pagemap.c
         pagemap.h
         ssd.c
-        ssd.h)
+        ssd.h tools.c tools.h)
 
 add_executable(ssdsim-merge ${SOURCE_FILES})

@@ -151,20 +151,20 @@ unsigned int find_ppn(struct ssd_info * ssd,unsigned int channel,unsigned int ch
 /********************************
 *函数功能是获得一个读子请求的状态
 *********************************/
-int set_entry_state(struct ssd_info *ssd,unsigned int lsn,unsigned int size)
+int set_entry_state(struct ssd_info *ssd, unsigned int lsn, unsigned int size)
 {
 	int temp,state,move;
 
-	temp=~(0xffffffff<<size);
-	move=lsn%ssd->parameter->subpage_page;
-	state=temp<<move;
-
+	temp = ~(0xffffffff<<size);
+	move = lsn % ssd->parameter->subpage_page;
+	state = temp << move;
 	return state;
 }
 
 /**************************************************
-*读请求预处理函数，当读请求所读得页里面没有数据时，
-*需要预处理网该页里面写数据，以保证能读到数据
+ * 读请求预处理函数，当读请求所读得页里面没有数据时，
+ * 需要预处理网该页里面写数据，以保证能读到数据
+ * !!! 简单来说就给trace分配数据到物理块中，以保证能读到数据
 ***************************************************/
 struct ssd_info *pre_process_page(struct ssd_info *ssd)
 {
@@ -182,7 +182,7 @@ struct ssd_info *pre_process_page(struct ssd_info *ssd)
 	printf("\n");
 	printf("begin pre_process_page.................\n");
 
-	ssd->tracefile=fopen(ssd->tracefilename,"r");
+	ssd->tracefile = fopen(ssd->tracefilename,"r");
 	if(ssd->tracefile == NULL )      /*打开trace文件从中读取请求*/
 	{
 		printf("the trace file can't open\n");
@@ -190,70 +190,89 @@ struct ssd_info *pre_process_page(struct ssd_info *ssd)
 	}
 
 	// 子页屏蔽码，认为每个page的所有subpage的状态都是1
-    // 0xffffffff = 11111111111111111111111111111111
-	full_page=~(0xffffffff<<(ssd->parameter->subpage_page));
+    // 0xffffffff = (1)32位，所以　fullpage = 00001111 每一位标志时候可用
+	full_page = ~(0xffffffff<<(ssd->parameter->subpage_page));
 	/*计算出这个ssd的最大逻辑扇区号*/
 	largest_lsn=(unsigned int )((ssd->parameter->chip_num*ssd->parameter->die_chip*ssd->parameter->plane_die*ssd->parameter->block_plane*ssd->parameter->page_block*ssd->parameter->subpage_page)*(1-ssd->parameter->overprovide));
 
-	while(fgets(buffer_request,200,ssd->tracefile))
+	while(fgets(buffer_request, 200, ssd->tracefile))
 	{
+        //printf("---> %s\n", buffer_request);
 		sscanf(buffer_request,"%lld %d %d %d %d",&time,&device,&lsn,&size,&ope);
 		fl++;
 		trace_assert(time,device,lsn,size,ope);                         /*断言，当读到的time，device，lsn，size，ope不合法时就会处理*/
 
 		add_size = 0;                                                     /*add_size是这个请求已经预处理的大小*/
-
+        //printf("----------------------(%u)--------------------\n", lsn);
 		if(ope == 1)                                                      /*这里只是读请求的预处理，需要提前将相应位置的信息进行相应修改*/
 		{
 			while(add_size < size)
 			{
+                //printf("add size = %u, size = %u\n", add_size, size);
 				lsn = lsn % largest_lsn;                                 /*防止获得的lsn比最大的lsn还大*/
                 // 计算lsn所在的page实际io需要操作的长度
                 // page子页数量 - lsn在page中起始子页的位置
+                // ssd的最小计量单位是subpage，一个sector包含了4个page，然后计算sector所在的subpage的offset，然后计算该subpage读到sector尾有多少个subpage
 				sub_size = ssd->parameter->subpage_page - ( lsn % ssd->parameter->subpage_page);
-				if(add_size+sub_size>=size)                             /*只有当一个请求的大小小于一个page的大小时或者是处理一个请求的最后一个page时会出现这种情况*/
+
+				if(add_size + sub_size >= size)                             /* 只有当一个请求的大小小于一个page的大小时或者是处理一个请求的最后一个page时会出现这种情况 */
 				{
-					sub_size=size-add_size;
-					add_size+=sub_size;
+					sub_size = size-add_size;
+					add_size += sub_size;
 				}
 
-				if((sub_size>ssd->parameter->subpage_page)||(add_size>size))/*当预处理一个子大小时，这个大小大于一个page或是已经处理的大小大于size就报错*/
+				if( (sub_size > ssd->parameter->subpage_page) || (add_size > size) )/*当预处理一个子大小时，这个大小大于一个page或是已经处理的大小大于size就报错*/
 				{
 					printf("pre_process sub_size:%d\n",sub_size);
 				}
 
 				/*******************************************************************************************************
-                *利用逻辑扇区号lsn计算出逻辑页号lpn
-                *判断这个dram中映射表map中在lpn位置的状态
-                *A，这个状态==0，表示以前没有写过，现在需要直接将ub_size大小的子页写进去写进去
-                *B，这个状态>0，表示，以前有写过，这需要进一步比较状态，因为新写的状态可以与以前的状态有重叠的扇区的地方
+                * 利用逻辑扇区号lsn计算出逻辑页号lpn
+                * 判断这个dram中映射表map中在lpn位置的状态
+                * A，这个状态==0，表示以前没有写过，现在需要直接将ub_size大小的子页写进去写进去
+                * B，这个状态>0，表示，以前有写过，这需要进一步比较状态，因为新写的状态可以与以前的状态有重叠的扇区的地方
                 ********************************************************************************************************/
-				lpn=lsn/ssd->parameter->subpage_page;
-				if(ssd->dram->map->map_entry[lpn].state==0)                 /*状态为0的情况*/
+				lpn = lsn / ssd->parameter->subpage_page; // 逻辑页号 求出处于第几个subpage
+
+
+                /**
+                 * state的含义
+                 * 表示以前没有写过，现在需要直接将ub_size大小的子页写进去写进去
+                 * 不为0则说明此时该lpn的子页映射可能有效，可能存在有直接可用的子页
+                 * 而如果state>0则说明可能其中只是有部分子页有效，而有可能需要读取数据的子页并未存在dram和buffer中，
+                 * 所以需要将从SSD中写入到dram中的子页进行相应的操作，但是必须要确认到哪些子页需要进行写入。
+                 * 这里标记只标记一个sector中的第一个页号，因为这个页号被占据了，其他子页有没有数据都不用标记了，最小单位是 4个subpage组成的大page
+                 * */
+				if(ssd->dram->map->map_entry[lpn].state == 0)                 /*　状态为0的情况 　*/
 				{
 					/**************************************************************
-					*获得利用get_ppn_for_pre_process函数获得ppn，再得到location
-					*修改ssd的相关参数，dram的映射表map，以及location下的page的状态
+					* 获得利用get_ppn_for_pre_process函数获得ppn，再得到location
+					* 修改ssd的相关参数，dram的映射表map，以及location下的page的状态
 					***************************************************************/
-					ppn=get_ppn_for_pre_process(ssd,lsn);
-					location=find_location(ssd,ppn);
+					ppn = get_ppn_for_pre_process(ssd, lsn); //　从逻辑页，转换为物理页
+					location = find_location(ssd, ppn); // 查找该物理页的channel,chip,die等信息
 					ssd->program_count++;
 					ssd->channel_head[location->channel].program_count++;
 					ssd->channel_head[location->channel].chip_head[location->chip].program_count++;
-					ssd->dram->map->map_entry[lpn].pn=ppn;
-					ssd->dram->map->map_entry[lpn].state=set_entry_state(ssd,lsn,sub_size);   //0001
-					ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].lpn=lpn;
-					ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].valid_state=ssd->dram->map->map_entry[lpn].state;
-					ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].free_state=((~ssd->dram->map->map_entry[lpn].state)&full_page);
-
+					ssd->dram->map->map_entry[lpn].pn = ppn;
+                    /* !!! 更新state */
+					ssd->dram->map->map_entry[lpn].state = set_entry_state(ssd, lsn, sub_size);
+                    //printf("new state = %d, lsn = %u, subsize = %u\n", ssd->dram->map->map_entry[lpn].state, lsn, sub_size);
+					ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].lpn = lpn;
+                    /* 然后将modify中保存的映射更新信息赋值给当前lsn所在的lpn对应的map_entry[lpn].state，表示已经完成了将数据写入到SSD相对应的page子页中且已经读取到了dram中； */
+                    ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].valid_state = ssd->dram->map->map_entry[lpn].state;
+                    /* 同时根据location物理地址结构体的信息设置page中的子页有效映射位valid_state也为modify以保持与dram中的同步； */
+                    ssd->channel_head[location->channel].chip_head[location->chip].die_head[location->die].plane_head[location->plane].blk_head[location->block].page_head[location->page].free_state = ((~ssd->dram->map->map_entry[lpn].state)&full_page);
+                    //printf("free state = %d\n", ((~ssd->dram->map->map_entry[lpn].state)&full_page));
 					free(location);
 					location=NULL;
-				}//if(ssd->dram->map->map_entry[lpn].state==0)
-				else if(ssd->dram->map->map_entry[lpn].state>0)           /*状态不为0的情况*/
+				}
+				else if(ssd->dram->map->map_entry[lpn].state > 0)           /*状态不为0的情况*/
 				{
 					map_entry_new=set_entry_state(ssd,lsn,sub_size);      /*得到新的状态，并与原来的状态相或的到一个状态*/
 					map_entry_old=ssd->dram->map->map_entry[lpn].state;
 					modify=map_entry_new|map_entry_old;
+                    printf(">0 new state = %d, modify = %d, lsn = %u, subsize = %u\n", map_entry_new, modify, lsn, sub_size);
 					ppn=ssd->dram->map->map_entry[lpn].pn;
 					location=find_location(ssd,ppn);
 
@@ -267,10 +286,13 @@ struct ssd_info *pre_process_page(struct ssd_info *ssd)
 					free(location);
 					location=NULL;
 				}//else if(ssd->dram->map->map_entry[lpn].state>0)
-				lsn=lsn+sub_size;                                         /*下个子请求的起始位置*/
-				add_size+=sub_size;                                       /*已经处理了的add_size大小变化*/
+				lsn = lsn + sub_size;                                         /* 下个子请求的起始位置 */
+				add_size += sub_size;                                       /* 已经处理了的add_size大小变化 */
 			}//while(add_size<size)
 		}//if(ope==1)
+
+        //printf("lpn = %u, ppn = %u\n", lpn, ssd->dram->map->map_entry[lpn].pn);
+        //printf("lpn + 1 = %u, ppn + 1 = %u\n", lpn + 1, ssd->dram->map->map_entry[lpn+1].pn);
 	}
 
 	printf("\n");
@@ -278,10 +300,12 @@ struct ssd_info *pre_process_page(struct ssd_info *ssd)
 
 	fclose(ssd->tracefile);
 
+    // 遍历所有的plane
 	for(i=0;i<ssd->parameter->channel_number;i++)
 		for(j=0;j<ssd->parameter->die_chip;j++)
 			for(k=0;k<ssd->parameter->plane_die;k++)
 			{
+                //printf("chip:%d,die:%d,plane:%d have free page: %d\n",i,j,k,ssd->channel_head[i].chip_head[0].die_head[j].plane_head[k].free_page);
 				fprintf(ssd->outputfile,"chip:%d,die:%d,plane:%d have free page: %d\n",i,j,k,ssd->channel_head[i].chip_head[0].die_head[j].plane_head[k].free_page);
 				fflush(ssd->outputfile);
 			}
@@ -310,9 +334,9 @@ unsigned int get_ppn_for_pre_process(struct ssd_info *ssd,unsigned int lsn)
 	plane_num=ssd->parameter->plane_die;
 	lpn=lsn/ssd->parameter->subpage_page;
 
-	if (ssd->parameter->allocation_scheme==0)                           /*动态方式下获取ppn*/
+	if (ssd->parameter->allocation_scheme == 0)                           /*动态方式下获取ppn*/
 	{
-		if (ssd->parameter->dynamic_allocation==0)                      /*表示全动态方式下，也就是channel，chip，die，plane，block等都是动态分配*/
+		if (ssd->parameter->dynamic_allocation == 0)                      /*表示全动态方式下，也就是channel，chip，die，plane，block等都是动态分配*/
 		{
 			channel=ssd->token;
 			ssd->token=(ssd->token+1)%ssd->parameter->channel_number;

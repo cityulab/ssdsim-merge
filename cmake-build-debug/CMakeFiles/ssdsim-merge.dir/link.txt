@@ -1,0 +1,1 @@
+/usr/bin/cc -g   CMakeFiles/ssdsim-merge.dir/avlTree.c.o CMakeFiles/ssdsim-merge.dir/flash.c.o CMakeFiles/ssdsim-merge.dir/initialize.c.o CMakeFiles/ssdsim-merge.dir/pagemap.c.o CMakeFiles/ssdsim-merge.dir/ssd.c.o CMakeFiles/ssdsim-merge.dir/tools.c.o  -o ssdsim-merge 

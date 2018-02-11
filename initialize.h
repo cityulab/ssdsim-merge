@@ -72,10 +72,10 @@ Hao Luo         2011/01/01        2.0           Change               luohao13568
 #define CHIP_COPYBACK_BUSY 110
 #define UNKNOWN 111
 
-#define SR_WAIT 200
-#define SR_R_C_A_TRANSFER 201
-#define SR_R_READ 202
-#define SR_R_DATA_TRANSFER 203
+#define SR_WAIT 200 //等待读处理标志
+#define SR_R_C_A_TRANSFER 201 //　读命令地址传输状态
+#define SR_R_READ 202 //读处理状态
+#define SR_R_DATA_TRANSFER 203 //读数据传输状态
 #define SR_W_C_A_TRANSFER 204
 #define SR_W_DATA_TRANSFER 205
 #define SR_W_TRANSFER 206
@@ -337,7 +337,7 @@ struct dram_parameter{
 
 
 struct map_info{
-	struct entry *map_entry;            // 该项是映射表结构体指针,each entry indicate a mapping information
+	struct entry *map_entry;            // 该项是所有页的　逻辑地址->物理地址 映射表结构体指针,each entry indicate a mapping information
 	struct buffer_info *attach_info;	// info about attach map
 };
 

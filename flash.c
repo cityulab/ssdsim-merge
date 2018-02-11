@@ -18,6 +18,7 @@ Hao Luo         2011/01/01        2.0           Change               luohao13568
 
 #include "flash.h"
 #include "ssd.h"
+#include "tools.h"
 
 /**********************
 *这个函数只作用于写请求
@@ -603,14 +604,14 @@ struct sub_request * creat_sub_request(struct ssd_info * ssd,unsigned int lpn,in
 	{
 		return NULL;
 	}
-	sub->location=NULL;
-	sub->next_node=NULL;
-	sub->next_subs=NULL;
-	sub->update=NULL;
+	sub->location = NULL;
+	sub->next_node = NULL;
+	sub->next_subs = NULL;
+	sub->update = NULL;
 
-	if(req!=NULL)
+	if(req != NULL)
 	{
-		sub->next_subs = req->subs;
+		sub->next_subs = req->subs; // 插入一个子请求到链表头
 		req->subs = sub;
 	}
 
@@ -624,47 +625,50 @@ struct sub_request * creat_sub_request(struct ssd_info * ssd,unsigned int lpn,in
 		sub->location=loc;
 		sub->begin_time = ssd->current_time;
 		sub->current_state = SR_WAIT;
-		sub->current_time=MAX_INT64;
-		sub->next_state = SR_R_C_A_TRANSFER;
-		sub->next_state_predict_time=MAX_INT64;
+		sub->current_time = MAX_INT64;
+		sub->next_state = SR_R_C_A_TRANSFER; // !!! next_state
+		sub->next_state_predict_time = MAX_INT64;
 		sub->lpn = lpn;
 		sub->size=size;                                                               /*需要计算出该子请求的请求大小*/
 
 		p_ch = &ssd->channel_head[loc->channel];
 		sub->ppn = ssd->dram->map->map_entry[lpn].pn;
 		sub->operation = READ;
-		sub->state=(ssd->dram->map->map_entry[lpn].state&0x7fffffff);
-		sub_r=p_ch->subs_r_head;                                                      /*一下几行包括flag用于判断该读子请求队列中是否有与这个子请求相同的，有的话，将新的子请求直接赋为完成*/
-		flag=0;
-		while (sub_r!=NULL)
+		sub->state = (ssd->dram->map->map_entry[lpn].state & 0x7fffffff);
+        // 以下几行包括flag用于判断该读子请求队列中是否有与这个子请求相同的，有的话，将新的子请求直接赋为完成
+		sub_r = p_ch->subs_r_head; // 子请求队列
+		flag = 0;
+
+		while (sub_r != NULL)
 		{
-			if (sub_r->ppn==sub->ppn)
+			//printf("sub_r->ppn = %u\n", sub_r->ppn);
+			if (sub_r->ppn == sub->ppn)
 			{
 				flag=1;
 				break;
 			}
-			sub_r=sub_r->next_node;
+			sub_r = sub_r->next_node;
 		}
-		if (flag==0)
+		if (flag == 0)
 		{
-			if (p_ch->subs_r_tail!=NULL)
+			if (p_ch->subs_r_tail != NULL)
 			{
-				p_ch->subs_r_tail->next_node=sub;
-				p_ch->subs_r_tail=sub;
+				p_ch->subs_r_tail->next_node = sub;
+				p_ch->subs_r_tail = sub;
 			}
 			else
-			{
-				p_ch->subs_r_head=sub;
-				p_ch->subs_r_tail=sub;
+			{ // 如果不存在，就作为第一个子请求
+				p_ch->subs_r_head = sub;
+				p_ch->subs_r_tail = sub;
 			}
 		}
 		else
 		{
 			sub->current_state = SR_R_DATA_TRANSFER;
-			sub->current_time=ssd->current_time;
+			sub->current_time = ssd->current_time;
 			sub->next_state = SR_COMPLETE;
-			sub->next_state_predict_time=ssd->current_time+1000;
-			sub->complete_time=ssd->current_time+1000;
+			sub->next_state_predict_time = ssd->current_time+1000;
+			sub->complete_time = ssd->current_time+1000;
 		}
 	}
 		/*************************************************************************************
@@ -705,7 +709,7 @@ struct sub_request * creat_sub_request(struct ssd_info * ssd,unsigned int lpn,in
 		return NULL;
 	}
 
-	return sub;
+	return sub; //
 }
 
 /******************************************************
@@ -875,9 +879,9 @@ struct sub_request * find_write_sub_request(struct ssd_info * ssd, unsigned int 
 }
 
 /*********************************************************************************************
-*专门为读子请求服务的函数
-*1，只有当读子请求的当前状态是SR_R_C_A_TRANSFER
-*2，读子请求的当前状态是SR_COMPLETE或者下一状态是SR_COMPLETE并且下一状态到达的时间比当前时间小
+* 专门为读子请求服务的函数
+* 1，只有当读子请求的当前状态是SR_R_C_A_TRANSFER
+* 2，读子请求的当前状态是SR_COMPLETE或者下一状态是SR_COMPLETE并且下一状态到达的时间比当前时间小
 **********************************************************************************************/
 Status services_2_r_cmd_trans_and_complete(struct ssd_info * ssd)
 {
@@ -1059,19 +1063,22 @@ int services_2_r_wait(struct ssd_info * ssd,unsigned int channel,unsigned int * 
 
 	if ((ssd->parameter->advanced_commands&AD_TWOPLANE_READ)==AD_TWOPLANE_READ)         /*to find whether there are two sub request can be served by two plane operation*/
 	{
+        printf("AD_TWOPLANE_READ\n");
 		sub_twoplane_one=NULL;
 		sub_twoplane_two=NULL;
-		/*寻找能执行two_plane的两个读子请求*/
+
+
+		// 寻找能执行two_plane的两个读子请求
+        // 找到一个请求是和sub_twoplane_one是属于同一个chip和die和block和page中，保存在sub_twoplane_two
 		find_interleave_twoplane_sub_request(ssd,channel,sub_twoplane_one,sub_twoplane_two,TWO_PLANE);
 
-		if (sub_twoplane_two!=NULL)                                                     /*可以执行two plane read 操作*/
+		if (sub_twoplane_two != NULL)                                                     /*可以执行two plane read 操作*/
 		{
-			go_one_step(ssd, sub_twoplane_one,sub_twoplane_two, SR_R_C_A_TRANSFER,TWO_PLANE);
-
-			*change_current_time_flag=0;
-			*channel_busy_flag=1;                                                       /*已经占用了这个周期的总线，不用执行die中数据的回传*/
+			go_one_step(ssd, sub_twoplane_one,sub_twoplane_two, SR_R_C_A_TRANSFER, TWO_PLANE);
+			*change_current_time_flag = 0;
+			*channel_busy_flag = 1;                                                       /*已经占用了这个周期的总线，不用执行die中数据的回传*/
 		}
-		else if((ssd->parameter->advanced_commands&AD_INTERLEAVE)!=AD_INTERLEAVE)       /*没有满足条件的两个page，，并且没有interleave read命令时，只能执行单个page的读*/
+		else if((ssd->parameter->advanced_commands&AD_INTERLEAVE) != AD_INTERLEAVE)       /*没有满足条件的两个page，，并且没有interleave read命令时，只能执行单个page的读*/
 		{
 			while(sub!=NULL)                                                            /*if there are read requests in queue, send one of them to target die*/
 			{
@@ -1101,17 +1108,18 @@ int services_2_r_wait(struct ssd_info * ssd,unsigned int channel,unsigned int * 
 		sub_interleave_one=NULL;
 		sub_interleave_two=NULL;
 		find_interleave_twoplane_sub_request(ssd,channel,sub_interleave_one,sub_interleave_two,INTERLEAVE);
-
+        printf("AD_INTERLEAVE\n");
 		if (sub_interleave_two!=NULL)                                                  /*可以执行interleave read 操作*/
 		{
-
+            //printf("sub_interleave_two\n");
 			go_one_step(ssd, sub_interleave_one,sub_interleave_two, SR_R_C_A_TRANSFER,INTERLEAVE);
 
-			*change_current_time_flag=0;
-			*channel_busy_flag=1;                                                      /*已经占用了这个周期的总线，不用执行die中数据的回传*/
+			*change_current_time_flag = 0;
+			*channel_busy_flag = 1;                                                      /*已经占用了这个周期的总线，不用执行die中数据的回传*/
 		}
 		else                                                                           /*没有满足条件的两个page，只能执行单个page的读*/
 		{
+            //printf("else\n");
 			while(sub!=NULL)                                                           /*if there are read requests in queue, send one of them to target die*/
 			{
 				if(sub->current_state==SR_WAIT)
@@ -1560,6 +1568,7 @@ struct ssd_info *process(struct ssd_info *ssd)
 	{
 		if((ssd->channel_head[i].subs_r_head==NULL)&&(ssd->channel_head[i].subs_w_head==NULL)&&(ssd->subs_w_head==NULL))
 		{
+            // 针对全动态分配的情况
 			flag=1;
 		}
 		else
@@ -1583,21 +1592,24 @@ struct ssd_info *process(struct ssd_info *ssd)
 	}
 
 	time = ssd->current_time;
-	services_2_r_cmd_trans_and_complete(ssd);                                            /*处理当前状态是SR_R_C_A_TRANSFER或者当前状态是SR_COMPLETE，或者下一状态是SR_COMPLETE并且下一状态预计时间小于当前状态时间*/
 
-	random_num=ssd->program_count%ssd->parameter->channel_number;                        /*产生一个随机数，保证每次从不同的channel开始查询*/
+    // 第一次一般不会进入这个函数
+	services_2_r_cmd_trans_and_complete(ssd);  /*处理当前状态是SR_R_C_A_TRANSFER或者当前状态是SR_COMPLETE，或者下一状态是SR_COMPLETE并且下一状态预计时间小于当前状态时间*/
+
+	random_num = ssd->program_count % ssd->parameter->channel_number;                        /*产生一个随机数，保证每次从不同的channel开始查询*/
 
 	/*****************************************
-	*循环处理所有channel上的读写子请求
-	*发读请求命令，传读写数据，都需要占用总线，
-	******************************************/
+	 *循环处理所有channel上的读写子请求
+	 *发读请求命令，传读写数据，都需要占用总线，
+	 ******************************************/
 	for(chan=0;chan<ssd->parameter->channel_number;chan++)
 	{
-		i=(random_num+chan)%ssd->parameter->channel_number;
+		i = (random_num+chan)%ssd->parameter->channel_number;
 		flag=0;
 		flag_gc=0;                                                                       /*每次进入channel时，将gc的标志位置为0，默认认为没有进行gc操作*/
 		if((ssd->channel_head[i].current_state==CHANNEL_IDLE)||(ssd->channel_head[i].next_state==CHANNEL_IDLE&&ssd->channel_head[i].next_state_predict_time<=ssd->current_time))
 		{
+            //printf("channel idle\n");
 			if (ssd->gc_request>0)                                                       /*有gc操作，需要进行一定的判断*/
 			{
 				if (ssd->channel_head[i].gc_command!=NULL)
@@ -1610,10 +1622,11 @@ struct ssd_info *process(struct ssd_info *ssd)
 				}
 			}
 
-			sub=ssd->channel_head[i].subs_r_head;                                        /*先处理读请求*/
+            // 从 channel 中取出一个子请求
+			sub = ssd->channel_head[i].subs_r_head;                                        /*先处理读请求*/
 			services_2_r_wait(ssd,i,&flag,&chg_cur_time_flag);                           /*处理处于等待状态的读子请求*/
 
-			if((flag==0)&&(ssd->channel_head[i].subs_r_head!=NULL))                      /*if there are no new read request and data is ready in some dies, send these data to controller and response this request*/
+			if((flag==0) && (ssd->channel_head[i].subs_r_head!=NULL))                      /*if there are no new read request and data is ready in some dies, send these data to controller and response this request*/
 			{
 				services_2_r_data_trans(ssd,i,&flag,&chg_cur_time_flag);
 
@@ -3333,10 +3346,20 @@ struct sub_request *find_interleave_twoplane_page(struct ssd_info *ssd, struct s
 	{
 		return NULL;
 	}
-	if (((ssd->channel_head[one_page->location->channel].chip_head[one_page->location->chip].current_state==CHIP_IDLE)||((ssd->channel_head[one_page->location->channel].chip_head[one_page->location->chip].next_state==CHIP_IDLE)&&
-																														 (ssd->channel_head[one_page->location->channel].chip_head[one_page->location->chip].next_state_predict_time<=ssd->current_time))))
+
+    // channel的当前状态或者下一个状态是idle，同时下一个时间小于当前时间，第一次的情况通常next time = current time = 0
+	if (((ssd->channel_head[one_page->location->channel].chip_head[one_page->location->chip].current_state == CHIP_IDLE)
+         || ((ssd->channel_head[one_page->location->channel].chip_head[one_page->location->chip].next_state == CHIP_IDLE)
+            && (ssd->channel_head[one_page->location->channel].chip_head[one_page->location->chip].next_state_predict_time <= ssd->current_time))))
 	{
-		two_page=one_page->next_node;
+        /*
+        printf("interleave next time = %u, current time = %u\n",
+               ssd->channel_head[one_page->location->channel].chip_head[one_page->location->chip].next_state_predict_time,
+               ssd->current_time
+        );*/
+
+        // 去除下一个子请求结构
+		two_page = one_page->next_node;
 		if(command==TWO_PLANE)
 		{
 			while (two_page!=NULL)
@@ -3345,7 +3368,10 @@ struct sub_request *find_interleave_twoplane_page(struct ssd_info *ssd, struct s
 				{
 					two_page=two_page->next_node;
 				}
-				else if ((one_page->location->chip==two_page->location->chip)&&(one_page->location->die==two_page->location->die)&&(one_page->location->block==two_page->location->block)&&(one_page->location->page==two_page->location->page))
+				else if ((one_page->location->chip==two_page->location->chip)
+                         &&(one_page->location->die==two_page->location->die)
+                         &&(one_page->location->block==two_page->location->block)
+                         &&(one_page->location->page==two_page->location->page))
 				{
 					if (one_page->location->plane!=two_page->location->plane)
 					{
@@ -3368,23 +3394,27 @@ struct sub_request *find_interleave_twoplane_page(struct ssd_info *ssd, struct s
 		}//if(command==TWO_PLANE)
 		else if(command==INTERLEAVE)
 		{
-			while (two_page!=NULL)
+			while (two_page != NULL) // 遍历子请求链表，如果是同chip同die，那么说明可以一起并行执行命令
 			{
-				if (two_page->current_state!=SR_WAIT)
+				if (two_page->current_state != SR_WAIT)
 				{
-					two_page=two_page->next_node;
+                    //printf("!=SR_WAIT\n");
+					two_page = two_page->next_node;
 				}
-				else if ((one_page->location->chip==two_page->location->chip)&&(one_page->location->die!=two_page->location->die))
+				else if ((one_page->location->chip == two_page->location->chip)&&(one_page->location->die != two_page->location->die))
 				{
-					return two_page;                                                           /*找到了与one_page可以执行interleave操作的页*/
+                    //printf("same chip and same die\n");
+					return two_page; // 找到了与one_page可以执行interleave操作的页，同chip同die
 				}
 				else
 				{
-					two_page=two_page->next_node;
+                    //printf("nothing\n");
+					two_page = two_page->next_node;
 				}
 			}
-			if (two_page==NULL)                                                                /*没有找到可以和one_page执行interleave操作的页,需要将one_page向后移一个节点*/
+			if (two_page == NULL)                                                                /*没有找到可以和one_page执行interleave操作的页,需要将one_page向后移一个节点*/
 			{
+                //printf("two page is null\n");
 				return NULL;
 			}//while (two_page!=NULL)
 		}//else if(command==INTERLEAVE)
@@ -3401,27 +3431,31 @@ struct sub_request *find_interleave_twoplane_page(struct ssd_info *ssd, struct s
 **************************************************************************/
 int find_interleave_twoplane_sub_request(struct ssd_info * ssd, unsigned int channel,struct sub_request * sub_request_one,struct sub_request * sub_request_two,unsigned int command)
 {
-	sub_request_one=ssd->channel_head[channel].subs_r_head;
-	while (sub_request_one!=NULL)
+	sub_request_one = ssd->channel_head[channel].subs_r_head; // 链表头取出一个数据
+	while (sub_request_one != NULL)
 	{
-		sub_request_two=find_interleave_twoplane_page(ssd,sub_request_one,command);                /*找出两个可以做two_plane或者interleave的read子请求，包括位置条件和时间条件*/
-		if (sub_request_two==NULL)
+        // 找出两个可以做two_plane或者interleave的read子请求，包括位置条件和时间条件
+        // 实现为　遍历子请求队列　找到　同一个chip和die的子请求，然后返回出来
+		sub_request_two = find_interleave_twoplane_page(ssd,sub_request_one,command);/*找出两个可以做two_plane或者interleave的read子请求，包括位置条件和时间条件*/
+		//loop_subrequest(sub_request_one);
+        if (sub_request_two == NULL)
 		{
-			sub_request_one=sub_request_one->next_node;
+			sub_request_one = sub_request_one->next_node;
 		}
-		else if (sub_request_two!=NULL)                                                            /*找到了两个可以执行two plane操作的页*/
+		else if (sub_request_two != NULL)                                                            /*找到了两个可以执行two plane操作的页*/
 		{
 			break;
 		}
 	}
 
-	if (sub_request_two!=NULL)
+	if (sub_request_two != NULL)
 	{
-		if (ssd->request_queue!=ssd->request_tail)
-		{                                                                                         /*确保interleave read的子请求是第一个请求的子请求*/
-			if ((ssd->request_queue->lsn-ssd->parameter->subpage_page)<(sub_request_one->lpn*ssd->parameter->subpage_page))
+        // 确保interleave read的子请求是第一个请求的子请求
+		if (ssd->request_queue != ssd->request_tail)
+		{
+			if ((ssd->request_queue->lsn - ssd->parameter->subpage_page) < (sub_request_one->lpn * ssd->parameter->subpage_page))
 			{
-				if ((ssd->request_queue->lsn+ssd->request_queue->size+ssd->parameter->subpage_page)>(sub_request_one->lpn*ssd->parameter->subpage_page))
+				if ((ssd->request_queue->lsn + ssd->request_queue->size + ssd->parameter->subpage_page) > (sub_request_one->lpn * ssd->parameter->subpage_page))
 				{
 				}
 				else
@@ -3449,9 +3483,9 @@ int find_interleave_twoplane_sub_request(struct ssd_info * ssd, unsigned int cha
 
 
 /**************************************************************************
-*这个函数非常重要，读子请求的状态转变，以及时间的计算都通过这个函数来处理
-*还有写子请求的执行普通命令时的状态，以及时间的计算也是通过这个函数来处理的
-****************************************************************************/
+ *这个函数非常重要，读子请求的状态转变，以及时间的计算都通过这个函数来处理
+ *还有写子请求的执行普通命令时的状态，以及时间的计算也是通过这个函数来处理的
+ ****************************************************************************/
 Status go_one_step(struct ssd_info * ssd, struct sub_request * sub1,struct sub_request *sub2, unsigned int aim_state,unsigned int command)
 {
 	unsigned int i=0,j=0,k=0,m=0;
