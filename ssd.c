@@ -108,24 +108,26 @@ struct ssd_info *simulate(struct ssd_info *ssd)
     {
         ccount++;
         printf("-------------------------(%d)------------------------\n", ccount);
-        flag = get_requests(ssd);
+        flag = get_requests(ssd); // 读取一行数据，然后将request加入到链表中
         printf("[hubery]-simulate flag = %d\n", flag);
+
         if(flag == 1)
         {
-            if (ssd->parameter->dram_capacity != 0)
+            if (ssd->parameter->dram_capacity != 0) // 取决于有没有buffer
             {
-                //printf("in buffer\n");
-                buffer_management(ssd);
+                printf("in buffer\n");
+                buffer_management(ssd); // 加入在buffer中，只需要使用1000us就可以读出数据
                 distribute(ssd);
             }
             else
             {
-                //printf("not in buffer\n");
-                no_buffer_distribute(ssd);
+                printf("not in buffer\n");
+                no_buffer_distribute(ssd); // 创建一个子请求，挂载到channel中，也挂载到主请求的子请求队列中
             }
         }
 
         process(ssd);
+        break;
         trace_output(ssd);
         if(flag == 0 && ssd->request_queue == NULL)
             flag = 100;
@@ -143,10 +145,10 @@ struct ssd_info *simulate(struct ssd_info *ssd)
 *	return	0: reach the end of the trace
 *			-1: no request has been added
 *			1: add one request to list
-*SSD模拟器有三种驱动方式:时钟驱动(精确，太慢) 事件驱动(本程序采用) trace驱动()，
-*两种方式推进事件：channel/chip状态改变、trace文件请求达到。
-*channel/chip状态改变和trace文件请求到达是散布在时间轴上的点，每次从当前状态到达
-*下一个状态都要到达最近的一个状态，每到达一个点执行一次process
+* SSD模拟器有三种驱动方式:时钟驱动(精确，太慢) 事件驱动(本程序采用) trace驱动()，
+* 两种方式推进事件：channel/chip状态改变、trace文件请求达到。
+* channel/chip状态改变和trace文件请求到达是散布在时间轴上的点，每次从当前状态到达
+* 下一个状态都要到达最近的一个状态，每到达一个点执行一次process
 ********************************************************************************/
 int get_requests(struct ssd_info *ssd)
 {
@@ -164,7 +166,7 @@ int get_requests(struct ssd_info *ssd)
 #endif
 
     if(feof(ssd->tracefile))
-        return 0;
+        return 0;// 返回0会导致循环退出
 
     filepoint = ftell(ssd->tracefile); // 返回当前文件指针所在的位置
     fgets(buffer, 200, ssd->tracefile); // 读取信息到buffer
@@ -180,27 +182,22 @@ int get_requests(struct ssd_info *ssd)
     if (lsn>ssd->max_lsn)
         ssd->max_lsn=lsn;
     /******************************************************************************************************
-    *上层文件系统发送给SSD的任何读写命令包括两个部分（LSN，size） LSN是逻辑扇区号，对于文件系统而言，它所看到的存
-    *储空间是一个线性的连续空间。例如，读请求（260，6）表示的是需要读取从扇区号为260的逻辑扇区开始，总共6个扇区。
-    *large_lsn: channel下面有多少个subpage，即多少个sector。overprovide系数：SSD中并不是所有的空间都可以给用户使用，
-    *比如32G的SSD可能有10%的空间保留下来留作他用，所以乘以1-provide
+    * 上层文件系统发送给SSD的任何读写命令包括两个部分（LSN，size） LSN是逻辑扇区号，对于文件系统而言，它所看到的存
+    * 储空间是一个线性的连续空间。例如，读请求（260，6）表示的是需要读取从扇区号为260的逻辑扇区开始，总共6个扇区。
+    * large_lsn: channel下面有多少个subpage，即多少个sector。overprovide系数：SSD中并不是所有的空间都可以给用户使用，
+    * 比如32G的SSD可能有10%的空间保留下来留作他用，所以乘以1-provide
      *
      * 最大的逻辑扇区号large_lsn = （颗粒chip数量 × 每个颗粒chip下晶圆die的数量 × 每个晶圆die下分组plane的数量 × 每个分组plane下块block的数量 × 每个块block下页page的数量 × 每个页page下子页subpage的数量）×预留空间比例。
     ***********************************************************************************************************/
-    large_lsn=(int)((ssd->parameter->subpage_page*ssd->parameter->page_block*ssd->parameter->block_plane*ssd->parameter->plane_die*ssd->parameter->die_chip*ssd->parameter->chip_num)*(1-ssd->parameter->overprovide));
-    lsn = lsn%large_lsn; // 对最大逻辑扇区求余，就知道该扇区的地址位于第几扇区
+    large_lsn = (int)((ssd->parameter->subpage_page*ssd->parameter->page_block*ssd->parameter->block_plane*ssd->parameter->plane_die*ssd->parameter->die_chip*ssd->parameter->chip_num)*(1-ssd->parameter->overprovide));
+    lsn = lsn % large_lsn; // 对最大逻辑扇区求余，就知道该扇区的地址位于第几扇区
     printf("[hubery-get_requests] -----------> current time = %lld\n", ssd->current_time);
     nearest_event_time = find_nearest_event(ssd); //查找当前所有子请求中最早到达的下一个状态时间。
     printf("[hubery-get_requests] -----------> nearest_event_time = %lld\n", nearest_event_time);
-    if (nearest_event_time==MAX_INT64) // 这个表示磁盘所有channel和clip正在忙
+    if (nearest_event_time == MAX_INT64) //　基本只有第一次才会有这个
     {
         printf("[hubery-get_requests] -----------> equals MAX_INT64 update current time\n");
-        ssd->current_time=time_t; // 那就更新当前时间
-
-        //if (ssd->request_queue_length>ssd->parameter->queue_length)    //如果请求队列的长度超过了配置文件中所设置的长度
-        //{
-        //printf("error in get request , the queue length is too long\n");
-        //}
+        ssd->current_time = time_t; // 那就更新当前时间
     }
     else
     {
@@ -208,16 +205,16 @@ int get_requests(struct ssd_info *ssd)
         if(nearest_event_time < time_t)
         {
             /*******************************************************************************
-            *回滚，即如果没有把time_t赋给ssd->current_time，则trace文件已读的一条记录回滚
-            *filepoint记录了执行fgets之前的文件指针位置，回滚到文件头+filepoint处
-            *int fseek(FILE *stream, long offset, int fromwhere);函数设置文件指针stream的位置。
-            *如果执行成功，stream将指向以fromwhere（偏移起始位置：文件头0，当前位置1，文件尾2）为基准，
-            *偏移offset（指针偏移量）个字节的位置。如果执行失败(比如offset超过文件自身大小)，则不改变stream指向的位置。
-            *文本文件只能采用文件头0的定位方式，本程序中打开文件方式是"r":以只读方式打开文本文件
+            * 回滚，即如果没有把time_t赋给ssd->current_time，则trace文件已读的一条记录回滚
+            * filepoint记录了执行fgets之前的文件指针位置，回滚到文件头+filepoint处
+            * int fseek(FILE *stream, long offset, int fromwhere);函数设置文件指针stream的位置。
+            * 如果执行成功，stream将指向以fromwhere（偏移起始位置：文件头0，当前位置1，文件尾2）为基准，
+            * 偏移offset（指针偏移量）个字节的位置。如果执行失败(比如offset超过文件自身大小)，则不改变stream指向的位置。
+            * 文本文件只能采用文件头0的定位方式，本程序中打开文件方式是"r":以只读方式打开文本文件
             **********************************************************************************/
-            fseek(ssd->tracefile,filepoint,0);
-            if(ssd->current_time<=nearest_event_time)
-                ssd->current_time=nearest_event_time;
+            fseek(ssd->tracefile, filepoint, 0);
+            if(ssd->current_time <= nearest_event_time)
+                ssd->current_time = nearest_event_time;
             return -1;
         }
         else
@@ -225,7 +222,7 @@ int get_requests(struct ssd_info *ssd)
             if (ssd->request_queue_length >= ssd->parameter->queue_length)
             {
                 fseek(ssd->tracefile,filepoint,0);
-                ssd->current_time=nearest_event_time;
+                ssd->current_time = nearest_event_time;
                 return -1;
             }
             else
@@ -311,7 +308,7 @@ int get_requests(struct ssd_info *ssd)
 *		   写入flash(这会产生一个sub_request写请求，挂到这个请求request的sub_request链上，同时视动态分配还是静态分配挂到channel或ssd的
 *		   sub_request链上),在将要写的sub_page写入buffer链头
 ***********************************************************************************************************************************************/
-struct ssd_info *buffer_management(struct ssd_info *ssd)
+struct ssd_info * buffer_management(struct ssd_info *ssd)
 {
     unsigned int j,lsn,lpn,last_lpn,first_lpn,index,complete_flag=0, state,full_page;
     unsigned int flag=0,need_distb_flag,lsn_flag,flag1=1,active_region_flag=0;
@@ -323,17 +320,19 @@ struct ssd_info *buffer_management(struct ssd_info *ssd)
     printf("enter buffer_management,  current time:%lld\n",ssd->current_time);
 #endif
     ssd->dram->current_time = ssd->current_time; // memset初始化为0
-    full_page =~ (0xffffffff << ssd->parameter->subpage_page); // defualt = 4
-    new_request = ssd->request_tail;
+    full_page = ~(0xffffffff << ssd->parameter->subpage_page); // 0000 1111
+    new_request = ssd->request_tail; // 取出尾部的request，即新request
     lsn = new_request->lsn; // 逻辑起始地址
     lpn = new_request->lsn / ssd->parameter->subpage_page; //
     last_lpn = (new_request->lsn + new_request->size - 1) / ssd->parameter->subpage_page;
     first_lpn = new_request->lsn / ssd->parameter->subpage_page;
     printf("[hubery-buffer_management] -----------> full page = %u, lsn = %u, first_lpn = %u, last_lpn = %u\n", full_page, lsn, first_lpn, last_lpn);
 
-    /* 实际是一个整数数组 每一个数组元素都存放着对应的子页状态标志信息
-     * int型是32位的，因此可以存放32位二元标志位，因此这里的数组每32位分配一个数组元素，如 32->数组长度1，64->数组长度2
-     * */
+    /*
+     * 实际是一个整数数组 每一个数组元素都存放着对应的子页状态标志信息
+     * int型是32位的，因此可以存放32位二元标志位，因此这里的数组每32位分配一个数组元素，
+     * 如 32->数组长度1，64->数组长度2
+     */
     new_request->need_distr_flag = (unsigned int*)malloc(sizeof(unsigned int)*((last_lpn-first_lpn+1)*ssd->parameter->subpage_page/32+1));
     alloc_assert(new_request->need_distr_flag,"new_request->need_distr_flag");
     memset(new_request->need_distr_flag, 0, sizeof(unsigned int)*((last_lpn-first_lpn+1)*ssd->parameter->subpage_page/32+1));
@@ -887,14 +886,15 @@ void statistic_output(struct ssd_info *ssd)
 ************************************************************************************/
 unsigned int size(unsigned int stored)
 {
-    unsigned int i,total=0,mask=0x80000000;
+    unsigned int i,total=0,mask=0x80000000; // 10000000000000000000000000000000
 
 #ifdef DEBUG
     printf("enter size\n");
 #endif
     for(i=1;i<=32;i++)
     {
-        if(stored & mask) total++;
+        if(stored & mask)
+            total++;
         stored<<=1;
     }
 #ifdef DEBUG
@@ -996,6 +996,7 @@ int64_t find_nearest_event(struct ssd_info *ssd)
      * CHIP_DATA_TRANSFER读准备好状态，数据已从介质传到了register，下一状态是从register传往buffer中的最小值
      * 注意可能都没有满足要求的time，这时time返回0x7fffffffffffffff 。
     *****************************************************************************************************/
+    printf("time1=%lld, time2=%lld\n", time1, time2);
     time = ( time1 > time2 ) ? time2 : time1;
     return time;
 }
@@ -1113,9 +1114,9 @@ struct ssd_info *make_aged(struct ssd_info *ssd)
 
 
 /*********************************************************************************************
-*no_buffer_distribute()函数是处理当ssd没有dram的时候，
-*这是读写请求就不必再需要在buffer里面寻找，直接利用creat_sub_request()函数创建子请求，再处理。
-*********************************************************************************************/
+ * no_buffer_distribute()函数是处理当ssd没有dram的时候，
+ * 这是读写请求就不必再需要在buffer里面寻找，直接利用creat_sub_request()函数创建子请求，再处理。
+ *********************************************************************************************/
 struct ssd_info *no_buffer_distribute(struct ssd_info *ssd)
 {
     unsigned int lsn,lpn,last_lpn,first_lpn,complete_flag=0, state;
@@ -1130,25 +1131,30 @@ struct ssd_info *no_buffer_distribute(struct ssd_info *ssd)
     unsigned int offset1=0, offset2=0;
     unsigned int sub_size=0;
     unsigned int sub_state=0;
+    unsigned int count = 0;
 
-    ssd->dram->current_time=ssd->current_time;
-    req=ssd->request_tail;
-    lsn=req->lsn;
-    lpn=req->lsn/ssd->parameter->subpage_page;
-    last_lpn=(req->lsn+req->size-1)/ssd->parameter->subpage_page;
-    first_lpn=req->lsn/ssd->parameter->subpage_page;
+    ssd->dram->current_time = ssd->current_time;
+    req = ssd->request_tail;
+    lsn = req->lsn;
+    lpn = req->lsn/ssd->parameter->subpage_page;
+    last_lpn = (req->lsn+req->size-1)/ssd->parameter->subpage_page;
+    first_lpn = req->lsn/ssd->parameter->subpage_page;
 
-    if(req->operation==READ)
+    if(req->operation == READ)
     {
-        while(lpn<=last_lpn)
+        printf("lpn=%u, first_lps=%u, last_lpn=%u\n", lpn, first_lpn, last_lpn);
+        while(lpn <= last_lpn)
         {
-            // 子页的状态
+            // 子页的状态 1111111111111111111111111111111
+            // 对于地址state非常大的时候才有意义
             sub_state = (ssd->dram->map->map_entry[lpn].state & 0x7fffffff); // 0111 1111 1111 1111 1111 1111 1111 1111
-            sub_size = size(sub_state);
-            printf("[hubery-no_buffer_distribute] -----------> state = %u, sub_state = %u, sub_size = %u\n",ssd->dram->map->map_entry[lpn].state,  sub_state, sub_size);
-            sub=creat_sub_request(ssd,lpn,sub_size,sub_state,req,req->operation);
+            // 根据state计算这个lpn下有多少个state是被占用的
+            sub_size = size(sub_state);// 计算这个lpn对应的页，有多少子页是包含数据的
+            sub = creat_sub_request(ssd,lpn,sub_size,sub_state,req,req->operation); // 创建，并返回一个子请求，这个请求会添加该lpn对应的channel中
             lpn++;
+            count++;
         }
+        printf("创建了%u个子请求\n", count);
     }
     else if(req->operation==WRITE)
     {
